@@ -7,6 +7,8 @@ import com.aliyun.oss.model.PutObjectResult;
 import com.volcengine.imagegen.config.AliyunOssProperties;
 import com.volcengine.imagegen.model.OssUploadResult;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -19,9 +21,11 @@ import java.util.UUID;
 
 /**
  * Service for Aliyun OSS operations
+ * Only created when OSS is configured
  */
 @Slf4j
 @Service
+@ConditionalOnProperty(prefix = "aliyun.oss", name = "access-key-id")
 public class AliyunOssService {
 
     private final OSS ossClient;
@@ -29,9 +33,32 @@ public class AliyunOssService {
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy/MM/dd");
 
+    @Autowired(required = false)
     public AliyunOssService(OSS ossClient, AliyunOssProperties properties) {
         this.ossClient = ossClient;
         this.properties = properties;
+    }
+
+    /**
+     * Check if OSS is properly configured
+     */
+    public boolean isConfigured() {
+        return ossClient != null &&
+                properties.getEndpoint() != null &&
+                properties.getAccessKeyId() != null &&
+                properties.getBucketName() != null;
+    }
+
+    /**
+     * Ensure OSS is configured before operations
+     */
+    private void ensureConfigured() {
+        if (!isConfigured()) {
+            throw new IllegalStateException(
+                "Aliyun OSS is not configured. Please set aliyun.oss.access-key-id, " +
+                "aliyun.oss.access-key-secret, aliyun.oss.endpoint, and aliyun.oss.bucket-name in your configuration."
+            );
+        }
     }
 
     /**
@@ -42,6 +69,7 @@ public class AliyunOssService {
      * @throws IOException if upload fails
      */
     public OssUploadResult uploadFile(MultipartFile file) throws IOException {
+        ensureConfigured();
         return uploadFile(file, null);
     }
 
@@ -54,6 +82,7 @@ public class AliyunOssService {
      * @throws IOException if upload fails
      */
     public OssUploadResult uploadFile(MultipartFile file, String customFileName) throws IOException {
+        ensureConfigured();
         // Validate file
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("File cannot be empty");
@@ -121,6 +150,7 @@ public class AliyunOssService {
      * @return Upload result with public URL
      */
     public OssUploadResult uploadBytes(byte[] bytes, String contentType, String fileName) {
+        ensureConfigured();
         // Generate unique file key
         String datePath = LocalDateTime.now().format(DATE_FORMATTER);
         String extension = "";
@@ -169,6 +199,7 @@ public class AliyunOssService {
      * @param fileKey The file key to delete
      */
     public void deleteFile(String fileKey) {
+        ensureConfigured();
         log.info("Deleting file from OSS: bucket={}, key={}",
                 properties.getBucketName(), fileKey);
         ossClient.deleteObject(properties.getBucketName(), fileKey);
@@ -199,6 +230,7 @@ public class AliyunOssService {
      * @return true if bucket exists
      */
     public boolean doesBucketExist() {
+        ensureConfigured();
         return ossClient.doesBucketExist(properties.getBucketName());
     }
 }

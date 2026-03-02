@@ -4,6 +4,7 @@ import com.volcengine.imagegen.dto.*;
 import com.volcengine.imagegen.model.OssUploadResult;
 import com.volcengine.imagegen.model.SeedreamImageResult;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -19,7 +20,7 @@ public class ChartGenerationService {
 
     private final ImageVectorService imageVectorService;
     private final SeedreamImageService seedreamImageService;
-    private final AliyunOssService aliyunOssService;
+    private final AliyunOssService aliyunOssService;  // Optional
     private final Random random;
 
     /**
@@ -27,12 +28,13 @@ public class ChartGenerationService {
      */
     private static final String DEFAULT_MODEL = "doubao-seedream-4-5-251128";
 
+    @Autowired(required = false)
     public ChartGenerationService(ImageVectorService imageVectorService,
                                   SeedreamImageService seedreamImageService,
                                   AliyunOssService aliyunOssService) {
         this.imageVectorService = imageVectorService;
         this.seedreamImageService = seedreamImageService;
-        this.aliyunOssService = aliyunOssService;
+        this.aliyunOssService = aliyunOssService;  // Can be null if OSS is not configured
         this.random = new Random();
     }
 
@@ -289,6 +291,13 @@ public class ChartGenerationService {
             String referenceImageUrl = request.getReferenceImageUrl();
             if (request.getReferenceImageFile() != null && !request.getReferenceImageFile().isEmpty()) {
                 // 上传本地文件到 OSS
+                if (aliyunOssService == null) {
+                    // OSS is not configured
+                    response.setSuccess(false);
+                    response.setGenerationSuccess(false);
+                    response.setErrorMessage("File upload is not available. Please configure Aliyun OSS or use a reference image URL instead.");
+                    return response;
+                }
                 log.info("Uploading reference image to OSS: {}", request.getReferenceImageFile().getOriginalFilename());
                 OssUploadResult uploadResult = aliyunOssService.uploadFile(request.getReferenceImageFile());
                 referenceImageUrl = uploadResult.fileUrl();

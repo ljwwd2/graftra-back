@@ -10,6 +10,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -17,15 +19,18 @@ import org.springframework.web.multipart.MultipartFile;
 
 /**
  * REST controller for Aliyun OSS upload
+ * Only created when OSS is configured
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/oss")
+@ConditionalOnProperty(prefix = "aliyun.oss", name = "access-key-id")
 @Tag(name = "阿里云OSS", description = "阿里云OSS文件上传接口（支持任意文件类型，返回7天有效期的签名URL）")
 public class OssUploadController {
 
     private final AliyunOssService aliyunOssService;
 
+    @Autowired
     public OssUploadController(AliyunOssService aliyunOssService) {
         this.aliyunOssService = aliyunOssService;
     }

@@ -105,3 +105,43 @@ vector:
     endpoint: ${VECTOR_EMBEDDING_ENDPOINT:}
     api-key: ${VECTOR_EMBEDDING_API_KEY:}
     model: ${VECTOR_EMBEDDING_MODEL:text-embedding-3-small}
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:your-secret-key-change-this-in-production-at-least-256-bits}
+  access-token-expiration: 604800000  # 7 days (in milliseconds)
+  refresh-token-expiration: 2592000000  # 30 days (in milliseconds)
+  issuer: graftra
+
+# WeChat OAuth Configuration
+wechat:
+  app-id: ${WECHAT_APP_ID:}
+  app-secret: ${WECHAT_APP_SECRET:}
+  redirect-uri: ${WECHAT_REDIRECT_URI:}
+
+# Database Configuration
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:h2:mem:graftra}
+    driver-class-name: ${DATABASE_DRIVER:org.h2.Driver}
+    username: ${DATABASE_USERNAME:sa}
+    password: ${DATABASE_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    show-sql: ${JPA_SHOW_SQL:false}
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: ${HIBERNATE_DIALECT:org.hibernate.dialect.H2Dialect}
+  h2:
+    console:
+      enabled: ${H2_CONSOLE_ENABLED:true}
+      path: /h2-console
+
+# Rate Limiting Configuration
+rate-limit:
+  auth:
+    capacity: 5  # Maximum requests per minute
+    refill-tokens: 5  # Tokens to refill per minute
+    refill-duration: 60  # Seconds
