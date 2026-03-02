@@ -1,0 +1,33 @@
+# Compiled class files
+*.class
+target/
+
+# Log files
+*.log
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.eclipse/
+.settings/
+.project
+.classpath
+
+# macOS
+.DS_Store
+
+# Uploads directory
+uploads/
+
+# Environment variables
+.env
+.env.local
+
+# Application configuration with secrets
+src/main/resources/application.yml

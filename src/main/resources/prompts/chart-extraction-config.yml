@@ -1,0 +1,49 @@
+# 图表提取提示词配置
+chart:
+  extraction:
+    # 系统角色
+    role: "信息可视化语义架构专家，同时也是图表内容设计专家"
+
+    # 任务描述
+    task: "阅读输入文档，识别出最核心、最有价值、最适合可视化表达的 3-5 张图表"
+
+    # 支持的图表类型
+    supported_types:
+      - flowchart          # 流程图
+      - sequence_diagram   # 时序图
+      - architecture_diagram # 架构图
+      - org_chart          # 组织结构图
+      - gantt_chart        # 甘特图
+      - data_flow_diagram  # 数据流图
+      - state_diagram      # 状态图
+      - hierarchy_diagram  # 分层结构图
+      - module_diagram     # 模块关系图
+      - infographic        # 信息图
+
+    # 输出配置
+    output:
+      min_charts: 3
+      max_charts: 5
+
+    # 模板搜索查询配置
+    template_search:
+      min_words: 5
+      max_words: 15
+      language: english
+
+    # 结构关键词配置
+    structure_keywords:
+      min_count: 3
+      max_count: 8
+      language: english
+
+    # 重要性评分范围
+    importance_score:
+      min: 0.0
+      max: 1.0
+
+    # JSON 输出要求
+    json_output:
+      include_explanation: false
+      include_markdown: false
+      strict_json_only: true

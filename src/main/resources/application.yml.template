@@ -1,0 +1,107 @@
+server:
+  port: 8080
+  tomcat:
+    # Disable response buffering for real-time SSE
+    threads:
+      max: 200
+    connection-timeout: 60000
+
+spring:
+  application:
+    name: volcengine-image-generator
+  mvc:
+    # Disable async request timeout for SSE
+    async:
+      request-timeout: -1
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 20MB
+  web:
+    resources:
+      static-locations: classpath:/static/, file:./uploads/
+
+# VolcEngine API Configuration
+volcengine:
+  api:
+    # API endpoint
+    endpoint: https://ark.cn-beijing.volces.com/api/v3
+    # 具体的图片生成endpoint (用于聊天模式)
+    image-generation-endpoint: /chat/completions
+    # 模型ID - Doubao-Seed-1.6-vision
+    model: doubao-seed-1-6-vision
+    # API Key - 从火山引擎控制台获取
+    access-key: ${VOLCENGINE_ACCESS_KEY:your-access-key}
+    # Secret Key - 从火山引擎控制台获取
+    secret-key: ${VOLCENGINE_SECRET_KEY:your-secret-key}
+    # API密钥 - 如果使用Authorization header方式
+    api-key: ${VOLCENGINE_API_KEY:your-api-key}
+    # 区域
+    region: cn-beijing
+    # 聊天/分析模型ID（Responses API）
+    chat-model: ${VOLCENGINE_CHAT_MODEL:doubao-seed-2-0-pro-260215}
+
+# Aliyun OSS Configuration
+aliyun:
+  oss:
+    # OSS访问域名 - 请根据您的OSS所在区域配置
+    # 示例: oss-cn-hangzhou.aliyuncs.com (杭州), oss-cn-beijing.aliyuncs.com (北京)
+    endpoint: ${ALIYUN_OSS_ENDPOINT:oss-cn-beijing.aliyuncs.com}
+    # Access Key ID - 从阿里云控制台获取
+    access-key-id: ${ALIYUN_ACCESS_KEY_ID:your-access-key-id}
+    # Access Key Secret - 从阿里云控制台获取
+    access-key-secret: ${ALIYUN_ACCESS_KEY_SECRET:your-access-key-secret}
+    # 存储桶名称
+    bucket-name: ${ALIYUN_OSS_BUCKET:your-bucket-name}
+    # 存储桶所在地域
+    region: ${ALIYUN_OSS_REGION:cn-beijing}
+    # 自定义域名（可选，用于CDN加速，配置后访问URL会使用该域名）
+    custom-domain: ${ALIYUN_OSS_CUSTOM_DOMAIN:}
+    # 文件存储目录前缀
+    key-prefix: images/
+
+# File upload configuration
+file:
+  upload:
+    dir: ./uploads
+    max-size: 10485760
+
+# HTTP Client timeout configuration
+http:
+  client:
+    connect-timeout: 30    # 连接超时（秒）
+    read-timeout: 300     # 读取超时（秒，5分钟）
+    write-timeout: 60     # 写入超时（秒）
+    ping-interval: 30     # 心跳间隔（秒）
+
+# Logging configuration
+logging:
+  level:
+    com.volcengine.imagegen: DEBUG
+    org.springframework.web: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+# Prompt configuration
+prompts:
+  chart-extraction: classpath:prompts/chart-extraction-prompt.txt
+
+# SpringDoc OpenAPI (Swagger) configuration
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    tags-sorter: alpha
+    operations-sorter: alpha
+  show-actuator: false
+
+# Vector Embedding Configuration
+vector:
+  embedding:
+    # API endpoint for embedding service (OpenAI compatible)
+    endpoint: ${VECTOR_EMBEDDING_ENDPOINT:}
+    api-key: ${VECTOR_EMBEDDING_API_KEY:}
+    model: ${VECTOR_EMBEDDING_MODEL:text-embedding-3-small}
