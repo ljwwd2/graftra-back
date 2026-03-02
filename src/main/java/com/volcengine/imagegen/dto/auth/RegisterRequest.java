@@ -25,6 +25,14 @@ public class RegisterRequest {
     @Size(min = 8, message = "密码至少需要8位字符")
     private String password;
 
+    @JsonProperty("captchaCode")
+    @NotBlank(message = "验证码不能为空")
+    private String captchaCode;
+
+    @JsonProperty("captchaId")
+    @NotBlank(message = "验证码ID不能为空")
+    private String captchaId;
+
     @JsonProperty("agreeToTerms")
     private boolean agreeToTerms;
 }

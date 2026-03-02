@@ -70,7 +70,8 @@ public class GlobalExceptionHandler {
      */
     private HttpStatus getStatusByAuthCode(String code) {
         return switch (code) {
-            case "EMAIL_EXISTS", "TERMS_NOT_AGREED", "INVALID_ARGUMENT", "VALIDATION_ERROR" ->
+            case "EMAIL_EXISTS", "TERMS_NOT_AGREED", "INVALID_ARGUMENT", "VALIDATION_ERROR",
+                 "INVALID_OLD_PASSWORD", "SAME_PASSWORD" ->
                     HttpStatus.BAD_REQUEST;
             case "INVALID_CREDENTIALS", "WECHAT_AUTH_FAILED", "INVALID_TOKEN", "REFRESH_TOKEN_EXPIRED",
                  "USE_WECHAT_LOGIN" ->

@@ -25,7 +25,7 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
-@ConditionalOnProperty(prefix = "aliyun.oss", name = "access-key-id")
+@ConditionalOnProperty(prefix = "aliyun.oss", name = "access-key-id", matchIfMissing = false)
 public class AliyunOssService {
 
     private final OSS ossClient;

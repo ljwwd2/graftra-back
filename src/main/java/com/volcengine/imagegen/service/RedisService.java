@@ -1,0 +1,213 @@
+package com.volcengine.imagegen.service;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.volcengine.imagegen.model.CaptchaData;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Redis service for captcha and session management
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+@ConditionalOnBean(RedisTemplate.class)
+public class RedisService {
+
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final ObjectMapper objectMapper;
+
+    // Key prefixes
+    private static final String CAPTCHA_PREFIX = "captcha:";
+    private static final String LOGIN_FAIL_PREFIX = "login_fail:";
+    private static final String TOKEN_BLACKLIST_PREFIX = "token_blacklist:";
+
+    // TTL values
+    private static final long CAPTCHA_TTL_SECONDS = 300;  // 5 minutes
+    private static final long LOGIN_FAIL_TTL_SECONDS = 900; // 15 minutes
+    private static final long TOKEN_BLACKLIST_TTL_SECONDS = 3600; // 1 hour
+
+    /**
+     * Store captcha in Redis
+     */
+    public void storeCaptcha(String captchaId, CaptchaData captchaData) {
+        String key = CAPTCHA_PREFIX + captchaId;
+        redisTemplate.opsForValue().set(key, captchaData, CAPTCHA_TTL_SECONDS, TimeUnit.SECONDS);
+        log.info("Stored captcha in Redis - Key: {}, Code: {}, ExpiresAt: {}", key, captchaData.getCode(), captchaData.getExpiresAt());
+    }
+
+    /**
+     * Get captcha from Redis
+     */
+    public CaptchaData getCaptcha(String captchaId) {
+        String key = CAPTCHA_PREFIX + captchaId;
+        Object data = redisTemplate.opsForValue().get(key);
+        log.info("Get captcha from Redis - Key: {}, Found: {}, DataType: {}", key, data != null, data != null ? data.getClass() : "null");
+
+        if (data instanceof CaptchaData) {
+            CaptchaData captchaData = (CaptchaData) data;
+            log.info("Retrieved captcha as CaptchaData - Code: {}, ExpiresAt: {}", captchaData.getCode(), captchaData.getExpiresAt());
+            return captchaData;
+        }
+
+        // Handle LinkedHashMap case (for backward compatibility or serialization issues)
+        if (data instanceof Map) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> map = (Map<String, Object>) data;
+                CaptchaData captchaData = objectMapper.convertValue(map, CaptchaData.class);
+                log.info("Converted LinkedHashMap to CaptchaData - Code: {}, ExpiresAt: {}", captchaData.getCode(), captchaData.getExpiresAt());
+                return captchaData;
+            } catch (Exception e) {
+                log.error("Failed to convert Map to CaptchaData: {}", e.getMessage());
+            }
+        }
+
+        if (data != null) {
+            log.warn("Captcha data is not CaptchaData type: {}", data.getClass());
+        }
+        return null;
+    }
+
+    /**
+     * Delete captcha from Redis
+     */
+    public void deleteCaptcha(String captchaId) {
+        String key = CAPTCHA_PREFIX + captchaId;
+        redisTemplate.delete(key);
+        log.info("Deleted captcha: {}", captchaId);
+    }
+
+    /**
+     * Verify captcha code
+     */
+    public boolean verifyCaptcha(String captchaId, String userInputCode) {
+        log.info("Verifying captcha - ID: {}, Input: {}", captchaId, userInputCode);
+        CaptchaData captchaData = getCaptcha(captchaId);
+        if (captchaData == null) {
+            log.warn("Captcha not found or expired: {}", captchaId);
+            return false;
+        }
+
+        // Check expiration
+        if (LocalDateTime.now().isAfter(captchaData.getExpiresAt())) {
+            deleteCaptcha(captchaId);
+            log.warn("Captcha expired: {}", captchaId);
+            return false;
+        }
+
+        // Compare code (case-insensitive)
+        boolean isValid = captchaData.getCode().equalsIgnoreCase(userInputCode);
+        log.info("Captcha comparison - Stored: {}, Input: {}, Valid: {}", captchaData.getCode(), userInputCode, isValid);
+
+        // Delete after use (one-time use)
+        if (isValid) {
+            deleteCaptcha(captchaId);
+        }
+
+        return isValid;
+    }
+
+    /**
+     * Get captcha code for logging (non-consuming)
+     */
+    public String getCaptchaCodeForLogging(String captchaId) {
+        String key = CAPTCHA_PREFIX + captchaId;
+        Object data = redisTemplate.opsForValue().get(key);
+
+        if (data instanceof CaptchaData) {
+            return ((CaptchaData) data).getCode();
+        }
+
+        // Handle LinkedHashMap case
+        if (data instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) data;
+            Object code = map.get("code");
+            return code != null ? code.toString() : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Increment login failure count
+     */
+    public int incrementLoginFailures(String email) {
+        String key = LOGIN_FAIL_PREFIX + email;
+        Long count = redisTemplate.opsForValue().increment(key);
+
+        if (count != null) {
+            // Set expiration on first failure
+            if (count == 1) {
+                redisTemplate.expire(key, LOGIN_FAIL_TTL_SECONDS, TimeUnit.SECONDS);
+            }
+            log.debug("Login failure count for {}: {}", email, count);
+            return count.intValue();
+        }
+        return 0;
+    }
+
+    /**
+     * Get login failure count
+     */
+    public int getLoginFailureCount(String email) {
+        String key = LOGIN_FAIL_PREFIX + email;
+        Object count = redisTemplate.opsForValue().get(key);
+        if (count instanceof Integer) {
+            return (Integer) count;
+        } else if (count instanceof Long) {
+            return ((Long) count).intValue();
+        }
+        return 0;
+    }
+
+    /**
+     * Clear login failure count
+     */
+    public void clearLoginFailures(String email) {
+        String key = LOGIN_FAIL_PREFIX + email;
+        redisTemplate.delete(key);
+        log.debug("Cleared login failures for: {}", email);
+    }
+
+    /**
+     * Check if account is locked (too many failures)
+     */
+    public boolean isAccountLocked(String email) {
+        return getLoginFailureCount(email) >= 10;
+    }
+
+    /**
+     * Get remaining lock time in seconds
+     */
+    public long getRemainingLockTime(String email) {
+        String key = LOGIN_FAIL_PREFIX + email;
+        Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
+        return ttl != null ? ttl : 0;
+    }
+
+    /**
+     * Add token to blacklist
+     */
+    public void addTokenToBlacklist(String tokenId, long expirationSeconds) {
+        String key = TOKEN_BLACKLIST_PREFIX + tokenId;
+        redisTemplate.opsForValue().set(key, "1", expirationSeconds, TimeUnit.SECONDS);
+        log.debug("Added token to blacklist: {}", tokenId);
+    }
+
+    /**
+     * Check if token is blacklisted
+     */
+    public boolean isTokenBlacklisted(String tokenId) {
+        String key = TOKEN_BLACKLIST_PREFIX + tokenId;
+        return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+    }
+}

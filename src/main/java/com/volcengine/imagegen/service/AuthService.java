@@ -11,6 +11,8 @@ import com.volcengine.imagegen.repository.UserRepository;
 import com.volcengine.imagegen.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,11 +32,30 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtUtil jwtUtil;
 
+    @Autowired(required = false)
+    private RedisService redisService;
+
     /**
      * Register a new user
      */
     @Transactional
     public AuthResponse register(RegisterRequest request) {
+        // Validate captcha
+        if (redisService != null) {
+            // Get the correct captcha code from Redis for logging
+            String correctCode = redisService.getCaptchaCodeForLogging(request.getCaptchaId());
+            boolean isMatch = correctCode != null && correctCode.equalsIgnoreCase(request.getCaptchaCode());
+            log.info("=== 验证码校验 === CaptchaId: {}, 用户输入: [{}], 正确验证码: [{}], 匹配: {}",
+                    request.getCaptchaId(),
+                    request.getCaptchaCode(),
+                    correctCode,
+                    isMatch);
+
+            if (!redisService.verifyCaptcha(request.getCaptchaId(), request.getCaptchaCode())) {
+                throw new AuthException("验证码错误或已过期", "INVALID_CAPTCHA");
+            }
+        }
+
         // Validate agree to terms
         if (!request.isAgreeToTerms()) {
             throw new AuthException("必须同意服务条款", "TERMS_NOT_AGREED");
@@ -57,11 +78,18 @@ public class AuthService {
                 .loginMethod(LoginMethod.EMAIL)
                 .build();
 
-        userRepository.save(user);
-        log.info("User registered successfully: {}", user.getEmail());
+        User savedUser = userRepository.save(user);
+        log.info("User registered successfully - ID: {}, Email: {}, Before flush ID: {}, After flush ID: {}",
+                savedUser.getId(), savedUser.getEmail(), user.getId(), savedUser.getId());
+
+        // Verify the user can be retrieved immediately
+        userRepository.findById(savedUser.getId()).ifPresentOrElse(
+                foundUser -> log.info("Verified user exists in DB - ID: {}, Email: {}", foundUser.getId(), foundUser.getEmail()),
+                () -> log.error("ERROR: User NOT found in DB immediately after save! ID: {}", savedUser.getId())
+        );
 
         // Generate tokens
-        return generateAuthResponse(user);
+        return generateAuthResponse(savedUser);
     }
 
     /**
@@ -69,9 +97,38 @@ public class AuthService {
      */
     @Transactional
     public AuthResponse login(LoginRequest request) {
+        // Check if account is locked (when Redis is available)
+        if (redisService != null && redisService.isAccountLocked(request.getEmail())) {
+            long remainingTime = redisService.getRemainingLockTime(request.getEmail());
+            throw new AuthException(
+                String.format("登录失败次数过多，账户已临时锁定，请在%d分钟后再试", remainingTime / 60 + 1),
+                "ACCOUNT_LOCKED"
+            );
+        }
+
+        // Check if captcha is required (after 6 failures)
+        if (redisService != null) {
+            int failCount = redisService.getLoginFailureCount(request.getEmail());
+            if (failCount >= 6) {
+                if (request.getCaptchaId() == null || request.getCaptchaCode() == null) {
+                    throw new AuthException("需要输入验证码", "REQUIRE_CAPTCHA");
+                }
+                if (!redisService.verifyCaptcha(request.getCaptchaId(), request.getCaptchaCode())) {
+                    throw new AuthException("验证码错误或已过期", "INVALID_CAPTCHA");
+                }
+            }
+        }
+
         // Find user by email
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new AuthException("邮箱或密码错误", "INVALID_CREDENTIALS"));
+                .orElseThrow(() -> {
+                    // Record failure
+                    if (redisService != null) {
+                        int failCount = redisService.incrementLoginFailures(request.getEmail());
+                        log.warn("Login failed for non-existent email: {}, failure count: {}", request.getEmail(), failCount);
+                    }
+                    return new AuthException("邮箱或密码错误", "INVALID_CREDENTIALS");
+                });
 
         // Verify password
         boolean passwordMatches = BCrypt.verifyer()
@@ -79,7 +136,17 @@ public class AuthService {
                 .verified;
 
         if (!passwordMatches) {
+            // Record failure
+            if (redisService != null) {
+                int failCount = redisService.incrementLoginFailures(request.getEmail());
+                log.warn("Login failed for email: {}, failure count: {}", request.getEmail(), failCount);
+            }
             throw new AuthException("邮箱或密码错误", "INVALID_CREDENTIALS");
+        }
+
+        // Clear login failures on successful login
+        if (redisService != null) {
+            redisService.clearLoginFailures(request.getEmail());
         }
 
         // Check if user is using email login method
@@ -181,12 +248,92 @@ public class AuthService {
      */
     public User getCurrentUser(String token) {
         String userId = jwtUtil.getUserIdFromToken(token);
+        log.info("getCurrentUser - Extracted userId from token: {}", userId);
         if (userId == null) {
             throw new AuthException("无效的令牌", "INVALID_TOKEN");
         }
 
         return userRepository.findById(userId)
+                .orElseThrow(() -> {
+                    log.error("User not found in database for userId: {}", userId);
+                    return new AuthException("用户不存在", "USER_NOT_FOUND");
+                });
+    }
+
+    /**
+     * Change password
+     */
+    @Transactional
+    public void changePassword(String token, ChangePasswordRequest request) {
+        String userId = jwtUtil.getUserIdFromToken(token);
+        if (userId == null) {
+            throw new AuthException("无效的令牌", "INVALID_TOKEN");
+        }
+
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new AuthException("用户不存在", "USER_NOT_FOUND"));
+
+        // Verify old password
+        boolean passwordMatches = BCrypt.verifyer()
+                .verify(request.getOldPassword().toCharArray(), user.getPasswordHash())
+                .verified;
+
+        if (!passwordMatches) {
+            throw new AuthException("旧密码错误", "INVALID_OLD_PASSWORD");
+        }
+
+        // Check if new password is same as old password
+        boolean samePassword = BCrypt.verifyer()
+                .verify(request.getNewPassword().toCharArray(), user.getPasswordHash())
+                .verified;
+
+        if (samePassword) {
+            throw new AuthException("新密码不能与旧密码相同", "SAME_PASSWORD");
+        }
+
+        // Update password
+        String newPasswordHash = BCrypt.withDefaults().hashToString(12, request.getNewPassword().toCharArray());
+        user.setPasswordHash(newPasswordHash);
+        userRepository.save(user);
+
+        // Revoke all refresh tokens for security
+        List<RefreshToken> tokens = refreshTokenRepository.findByUserId(userId);
+        tokens.forEach(t -> t.setRevokedAt(LocalDateTime.now()));
+        refreshTokenRepository.saveAll(tokens);
+
+        log.info("Password changed for user: {}", user.getEmail());
+    }
+
+    /**
+     * Update user profile
+     */
+    @Transactional
+    public AuthResponse.UserDto updateProfile(String token, UpdateProfileRequest request) {
+        String userId = jwtUtil.getUserIdFromToken(token);
+        if (userId == null) {
+            throw new AuthException("无效的令牌", "INVALID_TOKEN");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AuthException("用户不存在", "USER_NOT_FOUND"));
+
+        // Update fields if provided
+        boolean updated = false;
+        if (request.getName() != null) {
+            user.setName(request.getName());
+            updated = true;
+        }
+        if (request.getAvatar() != null) {
+            user.setAvatar(request.getAvatar());
+            updated = true;
+        }
+
+        if (updated) {
+            userRepository.save(user);
+            log.info("Profile updated for user: {}", user.getEmail());
+        }
+
+        return mapToUserDto(user);
     }
 
     /**

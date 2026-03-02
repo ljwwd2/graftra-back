@@ -87,16 +87,20 @@ public class AuthController {
      */
     @GetMapping("/me")
     @Operation(summary = "获取当前用户信息", description = "获取当前登录用户的详细信息")
-    public ResponseEntity<ApiResponse<UserDto>> getCurrentUser(@RequestHeader("Authorization") String authorization) {
+    public ResponseEntity<ApiResponse<AuthResponse.UserDto>> getCurrentUser(@RequestHeader("Authorization") String authorization) {
         String token = extractToken(authorization);
+        log.info("GET /api/auth/me - Token length: {}, First 20 chars: {}", token.length(), token.substring(0, Math.min(20, token.length())));
+
         User user = authService.getCurrentUser(token);
+
+        log.info("Found user - ID: {}, Email: {}, Name: {}", user.getId(), user.getEmail(), user.getName());
 
         String avatar = user.getAvatar();
         if (avatar == null && user.getWechatAvatar() != null) {
             avatar = user.getWechatAvatar();
         }
 
-        UserDto userDto = UserDto.builder()
+        AuthResponse.UserDto userDto = AuthResponse.UserDto.builder()
                 .id(user.getId())
                 .name(user.getName() != null ? user.getName() : user.getWechatNickname())
                 .email(user.getEmail())
@@ -105,6 +109,34 @@ public class AuthController {
                 .build();
 
         return ResponseEntity.ok(ApiResponse.success(userDto));
+    }
+
+    /**
+     * Update user profile (partial update)
+     */
+    @PatchMapping("/me")
+    @Operation(summary = "更新用户信息", description = "更新当前用户的昵称或头像")
+    public ResponseEntity<ApiResponse<AuthResponse.UserDto>> updateProfile(
+            @RequestHeader("Authorization") String authorization,
+            @Valid @RequestBody UpdateProfileRequest request) {
+        String token = extractToken(authorization);
+        log.info("PATCH /api/auth/me - Update profile request");
+        AuthResponse.UserDto userDto = authService.updateProfile(token, request);
+        return ResponseEntity.ok(ApiResponse.success("更新成功", userDto));
+    }
+
+    /**
+     * Change password
+     */
+    @PutMapping("/password")
+    @Operation(summary = "修改密码", description = "修改当前用户密码（需要验证旧密码）")
+    public ResponseEntity<ApiResponse<Void>> changePassword(
+            @RequestHeader("Authorization") String authorization,
+            @Valid @RequestBody ChangePasswordRequest request) {
+        String token = extractToken(authorization);
+        log.info("PUT /api/auth/password - Change password request");
+        authService.changePassword(token, request);
+        return ResponseEntity.ok(ApiResponse.success("密码修改成功，请重新登录", null));
     }
 
     /**
@@ -124,20 +156,5 @@ public class AuthController {
             return authorization.substring(7);
         }
         return authorization;
-    }
-
-    /**
-     * User DTO for getCurrentUser response
-     */
-    @lombok.Data
-    @lombok.Builder
-    @lombok.NoArgsConstructor
-    @lombok.AllArgsConstructor
-    public static class UserDto {
-        private String id;
-        private String name;
-        private String email;
-        private String avatar;
-        private String createdAt;
     }
 }

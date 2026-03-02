@@ -139,9 +139,25 @@ spring:
       enabled: ${H2_CONSOLE_ENABLED:true}
       path: /h2-console
 
+  # Redis Configuration (optional - for captcha and session management)
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:0}
+      timeout: 3000ms
+      jedis:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+
 # Rate Limiting Configuration
 rate-limit:
   auth:
-    capacity: 5  # Maximum requests per minute
-    refill-tokens: 5  # Tokens to refill per minute
+    capacity: 12  # Maximum requests per minute
+    refill-tokens: 12  # Tokens to refill per minute
     refill-duration: 60  # Seconds

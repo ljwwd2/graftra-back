@@ -19,18 +19,18 @@ import org.springframework.web.multipart.MultipartFile;
 
 /**
  * REST controller for Aliyun OSS upload
- * Only created when OSS is configured
+ * Only created when OSS service is available
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/v1/oss")
-@ConditionalOnProperty(prefix = "aliyun.oss", name = "access-key-id")
+@RequestMapping("/api/oss")
+@ConditionalOnProperty(prefix = "aliyun.oss", name = "enabled", havingValue = "true", matchIfMissing = false)
 @Tag(name = "阿里云OSS", description = "阿里云OSS文件上传接口（支持任意文件类型，返回7天有效期的签名URL）")
 public class OssUploadController {
 
     private final AliyunOssService aliyunOssService;
 
-    @Autowired
+    @Autowired(required = false)
     public OssUploadController(AliyunOssService aliyunOssService) {
         this.aliyunOssService = aliyunOssService;
     }

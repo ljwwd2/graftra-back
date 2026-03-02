@@ -18,6 +18,12 @@ public class LoginRequest {
     @NotBlank(message = "密码不能为空")
     private String password;
 
+    @JsonProperty("captchaCode")
+    private String captchaCode;  // Optional, required after 3 failed attempts
+
+    @JsonProperty("captchaId")
+    private String captchaId;    // Optional, required after 3 failed attempts
+
     @JsonProperty("remember")
     private boolean remember = false;
 }
