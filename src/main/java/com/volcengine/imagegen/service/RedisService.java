@@ -28,11 +28,14 @@ public class RedisService {
     private static final String CAPTCHA_PREFIX = "captcha:";
     private static final String LOGIN_FAIL_PREFIX = "login_fail:";
     private static final String TOKEN_BLACKLIST_PREFIX = "token_blacklist:";
+    private static final String SMS_CODE_PREFIX = "sms_code:";
+    private static final String SMS_LAST_SENT_PREFIX = "sms_last_sent:";
 
     // TTL values
     private static final long CAPTCHA_TTL_SECONDS = 300;  // 5 minutes
     private static final long LOGIN_FAIL_TTL_SECONDS = 900; // 15 minutes
     private static final long TOKEN_BLACKLIST_TTL_SECONDS = 3600; // 1 hour
+    private static final long SMS_RATE_LIMIT_SECONDS = 60; // 1 minute
 
     /**
      * Store captcha in Redis
@@ -111,6 +114,30 @@ public class RedisService {
         if (isValid) {
             deleteCaptcha(captchaId);
         }
+
+        return isValid;
+    }
+
+    /**
+     * Check captcha without consuming it (for validation before final commit)
+     */
+    public boolean checkCaptcha(String captchaId, String userInputCode) {
+        log.info("Checking captcha (non-consuming) - ID: {}, Input: {}", captchaId, userInputCode);
+        CaptchaData captchaData = getCaptcha(captchaId);
+        if (captchaData == null) {
+            log.warn("Captcha not found or expired: {}", captchaId);
+            return false;
+        }
+
+        // Check expiration
+        if (LocalDateTime.now().isAfter(captchaData.getExpiresAt())) {
+            log.warn("Captcha expired: {}", captchaId);
+            return false;
+        }
+
+        // Compare code (case-insensitive)
+        boolean isValid = captchaData.getCode().equalsIgnoreCase(userInputCode);
+        log.info("Captcha check - Stored: {}, Input: {}, Valid: {}", captchaData.getCode(), userInputCode, isValid);
 
         return isValid;
     }
@@ -209,5 +236,76 @@ public class RedisService {
     public boolean isTokenBlacklisted(String tokenId) {
         String key = TOKEN_BLACKLIST_PREFIX + tokenId;
         return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+    }
+
+    /**
+     * Store SMS verification code in Redis
+     */
+    public void storeSmsCode(String phoneNumber, String code, long ttlSeconds) {
+        String key = SMS_CODE_PREFIX + phoneNumber;
+        redisTemplate.opsForValue().set(key, code, ttlSeconds, TimeUnit.SECONDS);
+        log.info("Stored SMS code for phone: {}, expires in {} seconds", phoneNumber, ttlSeconds);
+    }
+
+    /**
+     * Get SMS verification code from Redis
+     */
+    private String getSmsCode(String phoneNumber) {
+        String key = SMS_CODE_PREFIX + phoneNumber;
+        Object code = redisTemplate.opsForValue().get(key);
+        return code != null ? code.toString() : null;
+    }
+
+    /**
+     * Delete SMS verification code from Redis
+     */
+    public void deleteSmsCode(String phoneNumber) {
+        String key = SMS_CODE_PREFIX + phoneNumber;
+        redisTemplate.delete(key);
+        log.debug("Deleted SMS code for phone: {}", phoneNumber);
+    }
+
+    /**
+     * Verify SMS verification code
+     */
+    public boolean verifySmsCode(String phoneNumber, String inputCode) {
+        String storedCode = getSmsCode(phoneNumber);
+        if (storedCode == null) {
+            log.warn("SMS code not found or expired for phone: {}", phoneNumber);
+            return false;
+        }
+
+        boolean isValid = storedCode.equals(inputCode);
+
+        if (isValid) {
+            deleteSmsCode(phoneNumber); // One-time use
+            log.info("SMS code verified successfully for phone: {}", phoneNumber);
+        } else {
+            log.warn("SMS code mismatch for phone: {}, expected: {}, got: {}", phoneNumber, storedCode, inputCode);
+        }
+
+        return isValid;
+    }
+
+    /**
+     * Check if SMS was sent recently (for rate limiting)
+     * Returns remaining seconds to wait, 0 if can send
+     */
+    public long getSmsRateLimitRemaining(String phoneNumber) {
+        String key = SMS_LAST_SENT_PREFIX + phoneNumber;
+        Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
+        if (ttl == null || ttl < 0) {
+            return 0;
+        }
+        return ttl;
+    }
+
+    /**
+     * Mark SMS as sent (for rate limiting)
+     */
+    public void markSmsSent(String phoneNumber) {
+        String key = SMS_LAST_SENT_PREFIX + phoneNumber;
+        redisTemplate.opsForValue().set(key, "1", SMS_RATE_LIMIT_SECONDS, TimeUnit.SECONDS);
+        log.info("Marked SMS as sent for phone: {}, rate limit: {} seconds", phoneNumber, SMS_RATE_LIMIT_SECONDS);
     }
 }

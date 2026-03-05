@@ -63,6 +63,29 @@ public class CaptchaController {
     }
 
     /**
+     * Verify captcha (one-time use)
+     * Note: If you just want to check without consuming, use login/register endpoint directly
+     */
+    @PostMapping("/verify-captcha")
+    @Operation(summary = "验证图形验证码", description = "验证图形验证码是否正确（一次性使用）")
+    public ResponseEntity<ApiResponse<Boolean>> verifyCaptcha(@RequestBody CaptchaVerifyRequest request) {
+        boolean isValid = redisService.verifyCaptcha(request.captchaId(), request.captchaCode());
+        if (isValid) {
+            return ResponseEntity.ok(ApiResponse.success(true));
+        } else {
+            return ResponseEntity.ok(ApiResponse.error("验证码错误或已过期", "INVALID_CAPTCHA"));
+        }
+    }
+
+    /**
+     * Captcha verify request
+     */
+    public record CaptchaVerifyRequest(
+            String captchaId,
+            String captchaCode
+    ) {}
+
+    /**
      * Get client IP address
      */
     private String getClientIp(HttpServletRequest request) {

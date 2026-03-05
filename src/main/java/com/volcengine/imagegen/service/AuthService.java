@@ -12,7 +12,6 @@ import com.volcengine.imagegen.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,25 +34,38 @@ public class AuthService {
     @Autowired(required = false)
     private RedisService redisService;
 
+    @Autowired(required = false)
+    private SmsService smsService;
+
     /**
      * Register a new user
      */
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        // Validate captcha
+        // Validate graphic captcha first (one-time use)
         if (redisService != null) {
-            // Get the correct captcha code from Redis for logging
             String correctCode = redisService.getCaptchaCodeForLogging(request.getCaptchaId());
             boolean isMatch = correctCode != null && correctCode.equalsIgnoreCase(request.getCaptchaCode());
-            log.info("=== 验证码校验 === CaptchaId: {}, 用户输入: [{}], 正确验证码: [{}], 匹配: {}",
+            log.info("=== 图形验证码校验 === CaptchaId: {}, 用户输入: [{}], 正确验证码: [{}], 匹配: {}",
                     request.getCaptchaId(),
                     request.getCaptchaCode(),
                     correctCode,
                     isMatch);
 
             if (!redisService.verifyCaptcha(request.getCaptchaId(), request.getCaptchaCode())) {
-                throw new AuthException("验证码错误或已过期", "INVALID_CAPTCHA");
+                throw new AuthException("图形验证码错误或已过期", "INVALID_CAPTCHA");
             }
+        }
+
+        // Validate SMS verification code
+        if (smsService != null) {
+            if (request.getSmsCode() == null || request.getSmsCode().isEmpty()) {
+                throw new AuthException("请输入短信验证码", "SMS_CODE_REQUIRED");
+            }
+            if (!smsService.verifyCode(request.getPhone(), request.getSmsCode())) {
+                throw new AuthException("短信验证码错误或已过期", "INVALID_SMS_CODE");
+            }
+            log.info("=== 短信验证码校验 === 手机号: {}, 验证通过", request.getPhone());
         }
 
         // Validate agree to terms
@@ -61,9 +73,9 @@ public class AuthService {
             throw new AuthException("必须同意服务条款", "TERMS_NOT_AGREED");
         }
 
-        // Check if email already exists
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new AuthException("该邮箱已被注册", "EMAIL_EXISTS");
+        // Check if phone already exists
+        if (userRepository.existsByPhone(request.getPhone())) {
+            throw new AuthException("该手机号已被注册", "PHONE_EXISTS");
         }
 
         // Hash password
@@ -72,19 +84,19 @@ public class AuthService {
         // Create user
         User user = User.builder()
                 .id(UUID.randomUUID().toString())
-                .name(request.getName() != null ? request.getName() : extractNameFromEmail(request.getEmail()))
-                .email(request.getEmail())
+                .name(request.getName() != null ? request.getName() : request.getPhone())
+                .phone(request.getPhone())
                 .passwordHash(passwordHash)
-                .loginMethod(LoginMethod.EMAIL)
+                .loginMethod(LoginMethod.PHONE)
                 .build();
 
         User savedUser = userRepository.save(user);
-        log.info("User registered successfully - ID: {}, Email: {}, Before flush ID: {}, After flush ID: {}",
-                savedUser.getId(), savedUser.getEmail(), user.getId(), savedUser.getId());
+        log.info("User registered successfully - ID: {}, Phone: {}, Before flush ID: {}, After flush ID: {}",
+                savedUser.getId(), savedUser.getPhone(), user.getId(), savedUser.getId());
 
         // Verify the user can be retrieved immediately
         userRepository.findById(savedUser.getId()).ifPresentOrElse(
-                foundUser -> log.info("Verified user exists in DB - ID: {}, Email: {}", foundUser.getId(), foundUser.getEmail()),
+                foundUser -> log.info("Verified user exists in DB - ID: {}, Phone: {}", foundUser.getId(), foundUser.getPhone()),
                 () -> log.error("ERROR: User NOT found in DB immediately after save! ID: {}", savedUser.getId())
         );
 
@@ -93,42 +105,23 @@ public class AuthService {
     }
 
     /**
-     * Login with email and password
+     * Login with phone and password
      */
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        // Check if account is locked (when Redis is available)
-        if (redisService != null && redisService.isAccountLocked(request.getEmail())) {
-            long remainingTime = redisService.getRemainingLockTime(request.getEmail());
-            throw new AuthException(
-                String.format("登录失败次数过多，账户已临时锁定，请在%d分钟后再试", remainingTime / 60 + 1),
-                "ACCOUNT_LOCKED"
-            );
-        }
-
-        // Check if captcha is required (after 6 failures)
+        // Always verify captcha first (one-time use)
         if (redisService != null) {
-            int failCount = redisService.getLoginFailureCount(request.getEmail());
-            if (failCount >= 6) {
-                if (request.getCaptchaId() == null || request.getCaptchaCode() == null) {
-                    throw new AuthException("需要输入验证码", "REQUIRE_CAPTCHA");
-                }
-                if (!redisService.verifyCaptcha(request.getCaptchaId(), request.getCaptchaCode())) {
-                    throw new AuthException("验证码错误或已过期", "INVALID_CAPTCHA");
-                }
+            if (request.getCaptchaId() == null || request.getCaptchaCode() == null) {
+                throw new AuthException("请输入图形验证码", "REQUIRE_CAPTCHA");
+            }
+            if (!redisService.verifyCaptcha(request.getCaptchaId(), request.getCaptchaCode())) {
+                throw new AuthException("验证码错误或已过期", "INVALID_CAPTCHA");
             }
         }
 
-        // Find user by email
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> {
-                    // Record failure
-                    if (redisService != null) {
-                        int failCount = redisService.incrementLoginFailures(request.getEmail());
-                        log.warn("Login failed for non-existent email: {}, failure count: {}", request.getEmail(), failCount);
-                    }
-                    return new AuthException("邮箱或密码错误", "INVALID_CREDENTIALS");
-                });
+        // Find user by phone
+        User user = userRepository.findByPhone(request.getPhone())
+                .orElseThrow(() -> new AuthException("该手机号未注册或密码错误", "INVALID_CREDENTIALS"));
 
         // Verify password
         boolean passwordMatches = BCrypt.verifyer()
@@ -136,25 +129,15 @@ public class AuthService {
                 .verified;
 
         if (!passwordMatches) {
-            // Record failure
-            if (redisService != null) {
-                int failCount = redisService.incrementLoginFailures(request.getEmail());
-                log.warn("Login failed for email: {}, failure count: {}", request.getEmail(), failCount);
-            }
-            throw new AuthException("邮箱或密码错误", "INVALID_CREDENTIALS");
+            throw new AuthException("该手机号未注册或密码错误", "INVALID_CREDENTIALS");
         }
 
-        // Clear login failures on successful login
-        if (redisService != null) {
-            redisService.clearLoginFailures(request.getEmail());
-        }
-
-        // Check if user is using email login method
-        if (user.getLoginMethod() != LoginMethod.EMAIL) {
+        // Check if user is using phone login method
+        if (user.getLoginMethod() != LoginMethod.PHONE) {
             throw new AuthException("请使用微信登录", "USE_WECHAT_LOGIN");
         }
 
-        log.info("User logged in successfully: {}", user.getEmail());
+        log.info("User logged in successfully: {}", user.getPhone());
 
         // Generate tokens
         return generateAuthResponse(user);
@@ -207,20 +190,20 @@ public class AuthService {
 
         // Get user
         User user = userRepository.findById(refreshToken.getUserId())
-                .orElseThrow(() -> new AuthException("用户不存在", "USER_NOT_FOUND"));
+                .orElseThrow(() -> new AuthException("该手机号未注册或密码错误", "USER_NOT_FOUND"));
 
         // Revoke old refresh token
         refreshToken.setRevokedAt(LocalDateTime.now());
         refreshTokenRepository.save(refreshToken);
 
         // Generate new tokens
-        String newAccessToken = jwtUtil.generateAccessToken(user.getId(), user.getEmail());
+        String newAccessToken = jwtUtil.generateAccessToken(user.getId(), user.getPhone());
         String newRefreshToken = jwtUtil.generateRefreshToken(user.getId());
 
         // Save new refresh token
         saveRefreshToken(user.getId(), newRefreshToken);
 
-        log.info("Token refreshed for user: {}", user.getEmail());
+        log.info("Token refreshed for user: {}", user.getPhone());
 
         return TokenRefreshResponse.builder()
                 .token(newAccessToken)
@@ -256,7 +239,7 @@ public class AuthService {
         return userRepository.findById(userId)
                 .orElseThrow(() -> {
                     log.error("User not found in database for userId: {}", userId);
-                    return new AuthException("用户不存在", "USER_NOT_FOUND");
+                    return new AuthException("该手机号未注册或密码错误", "USER_NOT_FOUND");
                 });
     }
 
@@ -271,7 +254,7 @@ public class AuthService {
         }
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new AuthException("用户不存在", "USER_NOT_FOUND"));
+                .orElseThrow(() -> new AuthException("该手机号未注册或密码错误", "USER_NOT_FOUND"));
 
         // Verify old password
         boolean passwordMatches = BCrypt.verifyer()
@@ -301,7 +284,7 @@ public class AuthService {
         tokens.forEach(t -> t.setRevokedAt(LocalDateTime.now()));
         refreshTokenRepository.saveAll(tokens);
 
-        log.info("Password changed for user: {}", user.getEmail());
+        log.info("Password changed for user: {}", user.getPhone());
     }
 
     /**
@@ -315,7 +298,7 @@ public class AuthService {
         }
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new AuthException("用户不存在", "USER_NOT_FOUND"));
+                .orElseThrow(() -> new AuthException("该手机号未注册或密码错误", "USER_NOT_FOUND"));
 
         // Update fields if provided
         boolean updated = false;
@@ -330,7 +313,7 @@ public class AuthService {
 
         if (updated) {
             userRepository.save(user);
-            log.info("Profile updated for user: {}", user.getEmail());
+            log.info("Profile updated for user: {}", user.getPhone());
         }
 
         return mapToUserDto(user);
@@ -340,7 +323,7 @@ public class AuthService {
      * Generate authentication response
      */
     private AuthResponse generateAuthResponse(User user) {
-        String accessToken = jwtUtil.generateAccessToken(user.getId(), user.getEmail());
+        String accessToken = jwtUtil.generateAccessToken(user.getId(), user.getPhone());
         String refreshToken = jwtUtil.generateRefreshToken(user.getId());
 
         // Save refresh token to database
@@ -383,20 +366,103 @@ public class AuthService {
         return AuthResponse.UserDto.builder()
                 .id(user.getId())
                 .name(user.getName() != null ? user.getName() : user.getWechatNickname())
-                .email(user.getEmail())
+                .phone(user.getPhone())
                 .avatar(avatar)
                 .createdAt(user.getFormattedCreatedAt())
                 .build();
     }
 
     /**
-     * Extract name from email
+     * Send SMS verification code
      */
-    private String extractNameFromEmail(String email) {
-        int atIndex = email.indexOf('@');
-        if (atIndex > 0) {
-            return email.substring(0, atIndex);
+    public boolean sendSmsVerificationCode(String phoneNumber) {
+        if (smsService == null) {
+            log.warn("SMS service not available");
+            return false;
         }
-        return email;
+
+        // Check if phone number format is valid
+        if (!smsService.isValidPhoneNumber(phoneNumber)) {
+            throw new AuthException("手机号格式不正确", "INVALID_PHONE_FORMAT");
+        }
+
+        // Check if phone already exists
+        if (userRepository.existsByPhone(phoneNumber)) {
+            throw new AuthException("该手机号已被注册", "PHONE_EXISTS");
+        }
+
+        // Rate limiting: check if SMS was sent recently (60 seconds)
+        if (redisService != null) {
+            long remainingSeconds = redisService.getSmsRateLimitRemaining(phoneNumber);
+            if (remainingSeconds > 0) {
+                throw new AuthException(
+                    String.format("验证码已发送，请%d秒后再试", remainingSeconds),
+                    "SMS_CODE_RECENTLY_SENT"
+                );
+            }
+        }
+
+        return smsService.sendVerificationCode(phoneNumber);
+    }
+
+    /**
+     * Send SMS verification code for password reset
+     */
+    public boolean sendSmsForResetPassword(String phoneNumber) {
+        if (smsService == null) {
+            log.warn("SMS service not available");
+            return false;
+        }
+
+        // Check if phone number format is valid
+        if (!smsService.isValidPhoneNumber(phoneNumber)) {
+            throw new AuthException("手机号格式不正确", "INVALID_PHONE_FORMAT");
+        }
+
+        // Check if phone exists (user must be registered)
+        if (!userRepository.existsByPhone(phoneNumber)) {
+            throw new AuthException("该手机号未注册或密码错误", "USER_NOT_FOUND");
+        }
+
+        // Rate limiting
+        if (redisService != null) {
+            long remainingSeconds = redisService.getSmsRateLimitRemaining(phoneNumber);
+            if (remainingSeconds > 0) {
+                throw new AuthException(
+                    String.format("验证码已发送，请%d秒后再试", remainingSeconds),
+                    "SMS_CODE_RECENTLY_SENT"
+                );
+            }
+        }
+
+        return smsService.sendVerificationCode(phoneNumber);
+    }
+
+    /**
+     * Reset password with SMS verification code
+     */
+    @Transactional
+    public void resetPassword(ResetPasswordRequest request) {
+        // Validate SMS verification code
+        if (smsService == null) {
+            throw new AuthException("短信服务不可用", "INTERNAL_ERROR");
+        }
+
+        if (!smsService.verifyCode(request.getPhone(), request.getSmsCode())) {
+            throw new AuthException("短信验证码错误或已过期", "INVALID_SMS_CODE");
+        }
+
+        // Find user by phone
+        User user = userRepository.findByPhone(request.getPhone())
+                .orElseThrow(() -> new AuthException("该手机号未注册或密码错误", "USER_NOT_FOUND"));
+
+        // Hash new password
+        String passwordHash = BCrypt.withDefaults().hashToString(12, request.getNewPassword().toCharArray());
+
+        // Update password
+        user.setPasswordHash(passwordHash);
+        userRepository.save(user);
+
+        log.info("Password reset successful for phone: {}", request.getPhone());
     }
 }

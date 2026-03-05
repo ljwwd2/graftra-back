@@ -30,20 +30,20 @@ public class AuthController {
      * Register a new user
      */
     @PostMapping("/register")
-    @Operation(summary = "用户注册", description = "使用邮箱和密码注册新用户")
+    @Operation(summary = "用户注册", description = "使用手机号和密码注册新用户")
     public ResponseEntity<ApiResponse<AuthResponse>> register(@Valid @RequestBody RegisterRequest request) {
-        log.info("Registration request for email: {}", request.getEmail());
+        log.info("Registration request for phone: {}", request.getPhone());
         AuthResponse response = authService.register(request);
         return ResponseEntity.status(201).body(ApiResponse.success(response));
     }
 
     /**
-     * Login with email and password
+     * Login with phone and password
      */
     @PostMapping("/login")
-    @Operation(summary = "邮箱登录", description = "使用邮箱和密码登录")
+    @Operation(summary = "手机号登录", description = "使用手机号和密码登录")
     public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
-        log.info("Login request for email: {}", request.getEmail());
+        log.info("Login request for phone: {}", request.getPhone());
         AuthResponse response = authService.login(request);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -93,7 +93,7 @@ public class AuthController {
 
         User user = authService.getCurrentUser(token);
 
-        log.info("Found user - ID: {}, Email: {}, Name: {}", user.getId(), user.getEmail(), user.getName());
+        log.info("Found user - ID: {}, Phone: {}, Name: {}", user.getId(), user.getPhone(), user.getName());
 
         String avatar = user.getAvatar();
         if (avatar == null && user.getWechatAvatar() != null) {
@@ -103,7 +103,7 @@ public class AuthController {
         AuthResponse.UserDto userDto = AuthResponse.UserDto.builder()
                 .id(user.getId())
                 .name(user.getName() != null ? user.getName() : user.getWechatNickname())
-                .email(user.getEmail())
+                .phone(user.getPhone())
                 .avatar(avatar)
                 .createdAt(user.getFormattedCreatedAt())
                 .build();
@@ -137,6 +137,47 @@ public class AuthController {
         log.info("PUT /api/auth/password - Change password request");
         authService.changePassword(token, request);
         return ResponseEntity.ok(ApiResponse.success("密码修改成功，请重新登录", null));
+    }
+
+    /**
+     * Send SMS verification code
+     */
+    @PostMapping("/send-sms")
+    @Operation(summary = "发送短信验证码", description = "发送6位数字验证码到手机号")
+    public ResponseEntity<ApiResponse<Void>> sendSmsVerification(@RequestParam String phone) {
+        log.info("Send SMS verification code request: {}", phone);
+        boolean sent = authService.sendSmsVerificationCode(phone);
+        if (sent) {
+            return ResponseEntity.ok(ApiResponse.success("验证码已发送到您的手机，请查收", null));
+        } else {
+            return ResponseEntity.ok(ApiResponse.success("验证码发送失败，请稍后重试", null));
+        }
+    }
+
+    /**
+     * Send SMS for password reset
+     */
+    @PostMapping("/send-reset-sms")
+    @Operation(summary = "发送重置密码短信验证码", description = "发送6位数字验证码到已注册的手机号")
+    public ResponseEntity<ApiResponse<Void>> sendResetSms(@RequestParam String phone) {
+        log.info("Send reset password SMS request: {}", phone);
+        boolean sent = authService.sendSmsForResetPassword(phone);
+        if (sent) {
+            return ResponseEntity.ok(ApiResponse.success("验证码已发送到您的手机，请查收", null));
+        } else {
+            return ResponseEntity.ok(ApiResponse.success("验证码发送失败，请稍后重试", null));
+        }
+    }
+
+    /**
+     * Reset password with SMS code
+     */
+    @PostMapping("/reset-password")
+    @Operation(summary = "重置密码", description = "通过短信验证码重置密码")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        log.info("Reset password request for phone: {}", request.getPhone());
+        authService.resetPassword(request);
+        return ResponseEntity.ok(ApiResponse.success("密码重置成功，请使用新密码登录", null));
     }
 
     /**

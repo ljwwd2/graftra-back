@@ -41,8 +41,8 @@ public class AuthResponse {
         @JsonProperty("name")
         private String name;
 
-        @JsonProperty("email")
-        private String email;
+        @JsonProperty("phone")
+        private String phone;
 
         @JsonProperty("avatar")
         private String avatar;

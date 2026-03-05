@@ -23,10 +23,10 @@ USE `graftra`;
 CREATE TABLE IF NOT EXISTS `users` (
     `id` VARCHAR(36) NOT NULL COMMENT '用户唯一ID (UUID)',
     `name` VARCHAR(255) DEFAULT NULL COMMENT '用户昵称',
-    `email` VARCHAR(255) DEFAULT NULL COMMENT '邮箱地址',
+    `phone` VARCHAR(20) DEFAULT NULL COMMENT '手机号',
     `password_hash` VARCHAR(255) DEFAULT NULL COMMENT '密码哈希 (BCrypt)',
     `avatar` VARCHAR(500) DEFAULT NULL COMMENT '头像URL',
-    `login_method` VARCHAR(20) NOT NULL DEFAULT 'EMAIL' COMMENT '登录方式: EMAIL, WECHAT',
+    `login_method` VARCHAR(20) NOT NULL DEFAULT 'PHONE' COMMENT '登录方式: PHONE, WECHAT',
     `wechat_openid` VARCHAR(255) DEFAULT NULL COMMENT '微信OpenID',
     `wechat_unionid` VARCHAR(255) DEFAULT NULL COMMENT '微信UnionID',
     `wechat_nickname` VARCHAR(255) DEFAULT NULL COMMENT '微信昵称',
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` DATETIME DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_email` (`email`),
+    UNIQUE KEY `uk_phone` (`phone`),
     UNIQUE KEY `uk_wechat_openid` (`wechat_openid`),
     INDEX `idx_login_method` (`login_method`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';

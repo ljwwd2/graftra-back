@@ -16,7 +16,7 @@ import java.time.format.DateTimeFormatter;
  */
 @Entity
 @Table(name = "users", indexes = {
-        @Index(name = "idx_email", columnList = "email"),
+        @Index(name = "idx_phone", columnList = "phone"),
         @Index(name = "idx_wechat_openid", columnList = "wechat_openid")
 })
 @Data
@@ -32,8 +32,8 @@ public class User {
     @Column(name = "name")
     private String name;
 
-    @Column(name = "email", unique = true, length = 255)
-    private String email;
+    @Column(name = "phone", unique = true, length = 20)
+    private String phone;
 
     @Column(name = "password_hash", length = 255)
     private String passwordHash;
@@ -44,7 +44,7 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(name = "login_method", nullable = false)
     @Builder.Default
-    private LoginMethod loginMethod = LoginMethod.EMAIL;
+    private LoginMethod loginMethod = LoginMethod.PHONE;
 
     @Column(name = "wechat_openid", unique = true, length = 255)
     private String wechatOpenid;

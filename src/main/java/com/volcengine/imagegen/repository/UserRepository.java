@@ -14,14 +14,14 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<User, String> {
 
     /**
-     * Find user by email
+     * Find user by phone
      */
-    Optional<User> findByEmail(String email);
+    Optional<User> findByPhone(String phone);
 
     /**
-     * Check if email exists
+     * Check if phone exists
      */
-    boolean existsByEmail(String email);
+    boolean existsByPhone(String phone);
 
     /**
      * Find user by WeChat OpenID
@@ -34,7 +34,7 @@ public interface UserRepository extends JpaRepository<User, String> {
     boolean existsByWechatOpenid(String openid);
 
     /**
-     * Find user by email and login method
+     * Find user by phone and login method
      */
-    Optional<User> findByEmailAndLoginMethod(String email, LoginMethod loginMethod);
+    Optional<User> findByPhoneAndLoginMethod(String phone, LoginMethod loginMethod);
 }

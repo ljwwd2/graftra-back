@@ -119,6 +119,17 @@ wechat:
   app-secret: ${WECHAT_APP_SECRET:}
   redirect-uri: ${WECHAT_REDIRECT_URI:}
 
+# SMS Configuration (Aliyun)
+sms:
+  enabled: true
+  access-key-id: ${SMS_ACCESS_KEY_ID:}
+  access-key-secret: ${SMS_ACCESS_KEY_SECRET:}
+  endpoint: dypnsapi.aliyuncs.com
+  region: cn-shanghai
+  sign-name: ${SMS_SIGN_NAME:}
+  template-code: ${SMS_TEMPLATE_CODE:}
+  code-expiration: 300  # 5 minutes in seconds
+
 # Database Configuration
 spring:
   datasource:
